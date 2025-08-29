@@ -1,4 +1,4 @@
-import torch 
+import torch
 from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
@@ -28,8 +28,8 @@ from torchvision.utils import save_image
 
 class BJDD:
     def __init__(self, config):
-        
-        # Model Configration 
+
+        # Model Configration
         self.gtPath = config['gtPath']
         self.targetPath = config['targetPath']
         self.checkpointPath = config['checkpointPath']
@@ -51,7 +51,7 @@ class BJDD:
         self.adamBeta1 = float(config['adamBeta1'])
         self.adamBeta2 = float(config['adamBeta2'])
         self.barLen = int(config['barLen'])
-        
+
         # Initiating Training Parameters(for step)
         self.currentEpoch = 0
         self.startSteps = 0
@@ -64,7 +64,7 @@ class BJDD:
 
         # Noise Level for inferencing
         self.noiseSet = [5, 10, 15]
-        
+
 
         # Preapring model(s) for GPU acceleration
         self.device =  torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -74,12 +74,12 @@ class BJDD:
         # Optimizers
         self.optimizerEG = torch.optim.Adam(self.attentionNet.parameters(), lr=self.learningRate, betas=(self.adamBeta1, self.adamBeta2))
         self.optimizerED = torch.optim.Adam(self.discriminator.parameters(), lr=self.learningRate, betas=(self.adamBeta1, self.adamBeta2))
-        
+
         # Scheduler for Super Convergance
         self.scheduleLR = None
-        
+
     def customTrainLoader(self, overFitTest = False):
-        
+
         targetImageList = imageList(self.targetPath)
         print ("Trining Samples (Input):", self.targetPath, len(targetImageList))
 
@@ -88,24 +88,24 @@ class BJDD:
         if self.dataSamples:
             targetImageList = targetImageList[:self.dataSamples]
 
-        datasetReadder = customDatasetReader(   
-                                                image_list=targetImageList, 
+        datasetReadder = customDatasetReader(
+                                                image_list=targetImageList,
                                                 imagePathGT=self.gtPath,
                                                 height = self.imageH,
                                                 width = self.imageW,
                                             )
 
         self.trainLoader = torch.utils.data.DataLoader( dataset=datasetReadder,
-                                                        batch_size=self.batchSize, 
+                                                        batch_size=self.batchSize,
                                                         shuffle=True
                                                         )
-        
+
         return self.trainLoader
 
     def modelTraining(self, resumeTraning=False, overFitTest=False, dataSamples = None):
-        
+
         if dataSamples:
-            self.dataSamples = dataSamples 
+            self.dataSamples = dataSamples
 
         # Losses
         featureLoss = regularizedFeatureLoss().to(self.device)
@@ -113,14 +113,14 @@ class BJDD:
         ssimLoss = MSSSIM().to(self.device)
         colorLoss = deltaEColorLoss(normalize=True).to(self.device)
         adversarialLoss = nn.BCELoss().to(self.device)
- 
+
         # Overfitting Testing
         if overFitTest == True:
             customPrint(Fore.RED + "Over Fitting Testing with an arbitary image!", self.barLen)
             trainingImageLoader = self.customTrainLoader(overFitTest=True)
             self.interval = 1
             self.totalEpoch = 100000
-        else:  
+        else:
             trainingImageLoader = self.customTrainLoader()
 
 
@@ -136,18 +136,18 @@ class BJDD:
                 userInput = input() or "Y"
                 if not (userInput == "Y" or userInput == "y"):
                     exit()
-        
+
 
         # Starting Training
         customPrint('Training is about to begin using:' + Fore.YELLOW + '[{}]'.format(self.device).upper(), textWidth=self.barLen)
-        
+
         # Initiating steps
         self.totalSteps =  int(len(trainingImageLoader)*self.totalEpoch)
         startTime = time.time()
-        
-        # Instantiating Super Convergance 
+
+        # Instantiating Super Convergance
         #self.scheduleLR = optim.lr_scheduler.OneCycleLR(optimizer=self.optimizerEG, max_lr=self.learningRate, total_steps=self.totalSteps)
-        # Initiating progress bar 
+        # Initiating progress bar
         #bar = ProgressBar(self.totalSteps, max_width=int(self.barLen/2))
         currentStep = self.startSteps
         while currentStep < self.totalSteps:
@@ -155,7 +155,7 @@ class BJDD:
             # Time tracker
             iterTime = time.time()
             for LRImages, HRGTImages in trainingImageLoader:
-                
+
                 ##############################
                 #### Initiating Variables ####
                 ##############################
@@ -169,8 +169,8 @@ class BJDD:
                 # Images
                 rawInput = LRImages.to(self.device)
                 highResReal = HRGTImages.to(self.device)
-              
-                
+
+
                 # GAN Variables
                 onesConst = torch.ones(rawInput.shape[0], 1).to(self.device)
                 targetReal = (torch.rand(rawInput.shape[0],1) * 0.3 + 0.7).to(self.device)
@@ -180,10 +180,10 @@ class BJDD:
                 ##############################
                 ####### Training Phase #######
                 ##############################
-    
+
                 # Image Generation
                 highResFake = self.attentionNet(rawInput)
-                
+
                 # Optimaztion of Discriminator
                 self.optimizerED.zero_grad()
                 lossED = adversarialLoss(self.discriminator(highResReal), targetReal) + \
@@ -191,8 +191,8 @@ class BJDD:
                 lossED.backward()
                 self.optimizerED.step()
 
-                
-                # Optimization of generator 
+
+                # Optimization of generator
                 self.optimizerEG.zero_grad()
                 generatorContentLoss =  reconstructionLoss(highResFake, highResReal) + \
                                         featureLoss(highResFake, highResReal) + \
@@ -203,12 +203,12 @@ class BJDD:
                 lossEG.backward()
                 self.optimizerEG.step()
 
-                # Steps for Super Convergance            
+                # Steps for Super Convergance
                 #self.scheduleLR.step()
 
                 ##########################
                 ###### Model Logger ######
-                ##########################   
+                ##########################
 
                 # Progress Bar
                 if (currentStep  + 1) % self.interval/2 == 0:
@@ -217,12 +217,12 @@ class BJDD:
                     progress_str = f"Steps [{currentStep + 1}/{self.totalSteps}]"
                     loss_str = f"| LossEG: {lossEG.item():.4f}, LossED: {lossED.item():.4f}, RFL: {featureLoss(highResFake, highResReal).item():.4f}"
                     print(Fore.YELLOW + progress_str + loss_str, end='\r')
-                
+
                 # Updating training log
                 if (currentStep + 1) % self.interval == 0:
-                   
+
                     # Updating Tensorboard
-                    summaryInfo = { 
+                    summaryInfo = {
                                     'Input Images' : self.unNorm(rawInput),
                                     'AttentionNetGen Images' : self.unNorm(highResFake),
                                     'GT Images' : self.unNorm(highResReal),
@@ -236,18 +236,18 @@ class BJDD:
                     tbLogWritter(summaryInfo)
                     save_image(self.unNorm(highResFake[0]), 'modelOutput.png')
 
-                    # Saving Weights and state of the model for resume training 
+                    # Saving Weights and state of the model for resume training
                     self.savingWeights(currentStep)
-                
-                if (currentStep + 1) % (self.interval ** 2) == 0 : 
+
+                if (currentStep + 1) % (self.interval ** 2) == 0 :
                     print("\n")
                     self.savingWeights(currentStep + 1, True)
                     #self.modelInference(validation=True, steps = currentStep + 1)
                     eHours, eMinutes, eSeconds = timer(iterTime, time.time())
-                    print (Fore.CYAN +'Steps [{}/{}] | Time elapsed [{:0>2}:{:0>2}:{:0>2}] | LossC: {:.2f}, LossP : {:.2f}, LossEG: {:.2f}, LossED: {:.2f}' 
+                    print (Fore.CYAN +'Steps [{}/{}] | Time elapsed [{:0>2}:{:0>2}:{:0>2}] | LossC: {:.2f}, LossP : {:.2f}, LossEG: {:.2f}, LossED: {:.2f}'
                             .format(currentStep + 1, self.totalSteps, eHours, eMinutes, eSeconds, colorLoss(highResFake, highResReal), featureLoss(highResFake, highResReal),lossEG, lossED))
-                    
-   
+
+
     def modelInference(self, testImagesPath = None, outputDir = None, resize = None, validation = None, noiseSet = None, steps = None):
         if not validation:
             self.modelLoad()
@@ -260,7 +260,7 @@ class BJDD:
             self.testImagesPath = testImagesPath
         if outputDir:
             self.resultDir = outputDir
-        
+
 
         modelInference = inference(gridSize=self.binningFactor, inputRootDir=self.testImagesPath, outputRootDir=self.resultDir, modelName=self.modelName, validation=validation)
 
@@ -284,7 +284,7 @@ class BJDD:
         if not input_size:
             input_size = (3, self.imageH//self.scalingFactor, self.imageW//self.scalingFactor)
 
-     
+
         customPrint(Fore.YELLOW + "AttentionNet (Generator)", textWidth=self.barLen)
         summary(self.attentionNet, input_size =input_size)
         print ("*" * self.barLen)
@@ -306,10 +306,10 @@ class BJDD:
 
         configShower()
         print ("*" * self.barLen)
-    
+
     def savingWeights(self, currentStep, duplicate=None):
-        # Saving weights 
-        checkpoint = { 
+        # Saving weights
+        checkpoint = {
                         'step' : currentStep + 1,
                         'stateDictEG': self.attentionNet.state_dict(),
                         'stateDictED': self.discriminator.state_dict(),
@@ -330,11 +330,9 @@ class BJDD:
         previousWeight = loadCheckpoints(self.checkpointPath, self.modelName)
         self.attentionNet.load_state_dict(previousWeight['stateDictEG'])
         self.discriminator.load_state_dict(previousWeight['stateDictED'])
-        self.optimizerEG.load_state_dict(previousWeight['optimizerEG']) 
-        self.optimizerED.load_state_dict(previousWeight['optimizerED']) 
+        self.optimizerEG.load_state_dict(previousWeight['optimizerEG'])
+        self.optimizerED.load_state_dict(previousWeight['optimizerED'])
         self.scheduleLR = previousWeight['schedulerLR']
         self.startSteps = int(previousWeight['step'])
-        
+
         customPrint(Fore.YELLOW + "Weight loaded successfully", textWidth=self.barLen)
-
-
